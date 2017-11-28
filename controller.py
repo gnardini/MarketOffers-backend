@@ -1,9 +1,13 @@
 from flask import Flask, request
+from flask_cors import CORS
 import json
+import socket
 from pymongo import MongoClient
 from bson.objectid import ObjectId
+from bson.json_util import dumps
 
 app = Flask(__name__)
+CORS(app)
 client = MongoClient('localhost', 27017)
 db = client['market-offers']
 usersDb = db['users']
@@ -45,11 +49,27 @@ def login():
 
 @app.route("/offer", methods=['POST'])
 def create_offer():
-    data = request.data
-    data = json.loads(data)
-    offer_id = data['id']
+    data = request.form
     description = data['description']
-    # TODO: Save offer
+    aisle = data['aisle']
+    sex = data['sex']
+    min_age = data['min_age']
+    max_age = data['max_age']
+    new_offer = {
+        'description': description,
+        'aisle': aisle,
+        'sex': sex,
+        'min_age': int(min_age),
+        'max_age': int(max_age)
+    }
+    offersDb.insert_one(new_offer)
+    return "Created", 201
+
+@app.route("/delete_offer", methods=['DELETE'])
+def delete_offer():
+    offer_id = request.form['id']
+    offersDb.delete_one({'_id': ObjectId(offer_id)})
+    return "deleted"
 
 @app.route("/fetch_offers")
 def request_offers():
@@ -57,43 +77,29 @@ def request_offers():
     user = usersDb.find_one( { "_id": ObjectId(user_id) } )
     if not user:
         return "Invalid user id", 400
-    if user['sex'] == "MALE":
-        offers = {
-            "8a21138990e1ebcd058f6b8485d13e31": {
-                "description": "2x1 Pringles",
-                "id": 20
-            },
-            "35393280630e846f9e9dafd54785550b": {
-                "description": "15% en Pepsi 2L",
-                "id": 16
-            },
-            "8fc235de0ae8970001cc12102f6e3b0e": {
-                "description": "50% Agua Sierra de los Padres 2L",
-                "id": 10
-            }
-        }
-    else:
-        offers = {
-            "8a21138990e1ebcd058f6b8485d13e31": {
-                "description": "2x1 Papas Lays",
-                "id": 21
-            },
-            "35393280630e846f9e9dafd54785550b": {
-                "description": "10% en Cola Cola 2L",
-                "id": 17
-            },
-            "8fc235de0ae8970001cc12102f6e3b0e": {
-                "description": "50% Agua Villavicencio 5L",
-                "id": 11
-            }
-        }
-    return json.JSONEncoder().encode(offers)
+    aisles = {
+        "8a21138990e1ebcd058f6b8485d13e31": 1,
+        "35393280630e846f9e9dafd54785550b": 2,
+        "8fc235de0ae8970001cc12102f6e3b0e": 3
+    }
+    offers = db.offers.find({
+        "min_age": { "$lte": user['age'] },
+        "max_age": { "$gte": user['age'] },
+        # "sex": { "$in": ["A", user['sex']] }
+    })
+    return dumps(offers)
 
 @app.route("/fetch_all_offers")
 def open():
     offers = offersDb.find({})
-    # TODO: filter offers fields
-    return json.JSONEncoder().encode(offers)
+    return dumps(offers)
+
+def get_ip_address():
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.connect(("8.8.8.8", 80))
+    return s.getsockname()[0]
+
+print('IP: %s' % get_ip_address())
 
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=5000)
